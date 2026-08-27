@@ -3,8 +3,8 @@
 Purpose: get the workspace, tooling, and agent context right once, before any real
 implementation starts, so technicalities stop being a decision every time.
 
-Status: not started. Work through the phases in order. Phase 5 (Aspire) can be its
-own session.
+Status: phases 1 and 2 done. Work through the rest in order. Phase 5 (Aspire) can be
+its own session.
 
 ## The shape we are building toward
 
@@ -23,7 +23,7 @@ velo/
 ├─ CLAUDE.md                repo map, how to run things
 ├─ apphost/                 Aspire TS AppHost (phase 5)
 ├─ spike/                   throwaway Nuxt app
-│  ├─ eslint.config.mjs     withNuxt(base)
+│  ├─ eslint.config.mjs     withNuxt().prepend(base({ vue: true }))
 │  ├─ .claude/skills/       impeccable-style, scoped as spike:<name>
 │  └─ nuxt.config.ts        eslint.config.standalone = false
 └─ planning/
@@ -120,62 +120,150 @@ The shape: one shared preset, two thin configs. `@nuxt/eslint` generates
 relative import, which is what forces a config file to live in the app package.
 Everything else hoists.
 
-- [ ] **2.1 Install at the root**: `eslint` and `@antfu/eslint-config` as root
-      devDependencies. Check the resolved ESLint major immediately, it changes 2.5.
+- [x] **2.1 Install at the root**: `eslint` and `@antfu/eslint-config` as root
+      devDependencies. Resolved to `eslint@10.9.1` and `@antfu/eslint-config@9.3.0`,
+      so 2.6 takes the 10.x row. Both peer ranges accept the major:
+      `@antfu/eslint-config` wants `^9.10.0 || ^10.0.0`, `@nuxt/eslint` wants
+      `^9.0.0 || ^10.0.0`.
 
-- [ ] **2.2 `eslint.base.js` at the root.** Exports the antfu preset plus our
-      overrides. This is the only place house style is defined. Not an ESLint config
-      file by itself, just a module both real configs import.
-      Turn off antfu's formatters we do not want and set `vue: true`.
+      Also declared `typescript@^6.0.3` at the root. It was already in the tree, but
+      only as a transitive dependency of `@typescript-eslint`, which typescript-eslint's
+      own parser then resolves by luck of hoisting.
 
-- [ ] **2.3 Root `eslint.config.js`.** Imports the base, adds
-      `ignores: ['spike/**', 'app/**', 'apphost/.aspire/**']`. This config governs
-      the apphost and any root-level scripts.
+      The 6 versus 7 pin, since it will look arbitrary later. TypeScript 6 is the last
+      of the JS-based compiler line; 7 is the native Go port, and it is already
+      `dist-tags.latest` (7.0.2), so a fresh `npm i typescript` gets 7. `^6.0.3` is a
+      deliberate choice to stay on the JS line rather than to follow the default.
+      `vue-tsc@3.3.11` declares `typescript: ">=5.0.0"`, which admits both, so that
+      range is not evidence either way about 7 readiness in Vite, Vue or Nuxt.
+      Parked on purpose, not our fight. Revisit whenever `app/` wants
+      `nuxt typecheck`.
 
-- [ ] **2.4 Add the Nuxt ESLint module to the spike**: `npx nuxi module add eslint`
-      run inside `spike/`. Then set `eslint: { config: { standalone: false } }` in
-      `spike/nuxt.config.ts`, so the module contributes only its Nuxt-specific rules
-      instead of duplicating the JS, TS, and Vue plugin setup antfu already brings.
+- [x] **2.2 `eslint.base.js` at the root.** The only place house style is defined.
+      Not a config file itself, just a module both real configs import.
 
-- [ ] **2.5 `spike/eslint.config.mjs`**:
+      Two deviations from the sketch, both load-bearing:
+
+      **It exports a factory, `base(options, ...configs)`, not a config value.** Two
+      config files importing one module get the same object back from Node's module
+      cache, and a composer is mutable. A factory also lets each package declare its
+      own flavour without restating the style rules.
+
+      **`vue` defaults to `false`, not `true`.** antfu autodetects Vue by asking
+      whether the package resolves, and npm workspaces hoist the spike's `vue` into
+      the root `node_modules`, so that question answers yes from the apphost too.
+      Autodetect is therefore wrong here, in a way that is invisible until you look:
+      the `antfu/vue/rules` config is scoped to `**/*.vue` and harmless, but
+      `antfu/vue/setup` carries no `files` key and declares `ref`, `computed`,
+      `watch` and friends as readonly globals repo-wide. So Vue is opt-in:
+      `base({ vue: true })`. `typescript: true` is pinned for the same reason, even
+      though autodetect happens to be right.
+
+      `formatters` needs no turning off, it already defaults to `false`. Worth
+      knowing what that costs, because the option is narrower than the name suggests:
+      it is only the Prettier/dprint bridge, and it only ever emits configs globbed
+      to `**/*.css`, `**/*.scss`, `**/*.html`, `**/*.xml`, `**/*.svg`, `**/*.md`.
+      Markdown, YAML, JSONC and TOML *linting* are separate options and all still on.
+      Inside a `.vue` file, `<template>` is covered by eslint-plugin-vue's own
+      stylistic rules (`vue/html-indent` wired to our `indent`, `vue/html-quotes`),
+      but `<style>` is not: antfu wires `eslint-processor-vue-blocks` with
+      `blocks: { styles: true }`, so the block is extracted as a virtual `.css` file
+      with no rule to catch it. `formatters: { css: true }` is the one-line fix if
+      that starts to hurt, and it stays css-globbed, so it cannot reach ts or vue
+      script.
+
+      Two rules added back on top of the preset:
+
+      | Rule | Files | Why |
+      | --- | --- | --- |
+      | `vue/multi-word-component-names: error` | `**/*.vue` | `vue3-essential`, and antfu switches it off. Single-word names collide with existing and future HTML elements. |
+      | `jsonc/sort-keys: off` | `**/tsconfig.json`, `**/tsconfig.*.json` | antfu's `antfu/sort/tsconfig-json` reorders Nuxt's scaffolded tsconfig and drags its doc comment away from the key it documents. A fresh scaffold produces the original order again, so the rule never stops fighting. `package.json` sorting stays on; nothing regenerates that. |
+
+- [x] **2.3 Root `eslint.config.js`.** `base({ ignores: ['planning/**'] })`.
+
+      No `spike/**` or `app/**` ignore. Under ESLint 10 the root config is not
+      consulted for a file that has a nearer config, so the app packages exclude
+      themselves. Describing this as the apphost's config was also wrong: it is the
+      fallback for anything with no nearer `eslint.config.*`, which is root scripts
+      today and `apphost/` from phase 5.
+
+      No `apphost/.aspire/**` ignore either. `gitignore: true` is on by default and
+      reads the root `.gitignore`, which already covers `.aspire/`, `node_modules/`
+      and `dist/`.
+
+      `planning/**` is ignored because antfu lints fenced code blocks inside markdown
+      and every key of a `.json` file. On planning docs and a vendored GBFS feed that
+      produced 70-odd reports about illustrative snippets and escaped slashes.
+
+- [x] **2.4 Add the Nuxt ESLint module to the spike.** `npx nuxi module add eslint`
+      run inside `spike/`, then `eslint: { config: { standalone: false } }` in
+      `spike/nuxt.config.ts`.
+
+      Check what nuxi wrote. It put both `@nuxt/eslint` **and** a second `eslint` in
+      spike's `dependencies`. Moved `@nuxt/eslint` to `devDependencies` and dropped
+      the `eslint` entry: it is a root devDependency, hoisted, and
+      `require.resolve('eslint')` from `spike/` lands on
+      `<root>/node_modules/eslint`, which also satisfies `@nuxt/eslint`'s peer
+      requirement. `@nuxt/eslint` stays declared in spike, since a Nuxt module belongs
+      to its package rather than the workspace. One declaration per tool, one place to
+      bump.
+
+- [x] **2.5 `spike/eslint.config.mjs`.** The sketch had `withNuxt(base)`. That
+      composes in the wrong order:
 
       ```js
-      // @ts-check
-      import base from '../eslint.base.js'
-      import withNuxt from './.nuxt/eslint.config.mjs'
-
-      export default withNuxt(base)
+      export default withNuxt().prepend(base({ vue: true }))
       ```
 
-      The relative import across the package boundary resolves fine under plain
-      Node semantics. `@antfu/eslint-config` is resolved from `eslint.base.js`'s
-      own directory, so it correctly finds the root `node_modules`.
+      `withNuxt(...customs)` is `configs.clone().append(...customs)`, so our config
+      lands last and wins. That silently defeats `nuxt/disables/routes`, the layer
+      that switches `vue/multi-word-component-names` back off for the route-driven
+      directories. Verified rather than assumed: with `append`, `pages/about.vue`,
+      `layouts/default.vue`, `error.vue` and a nested
+      `components/user/card.vue` all reported. With `prepend`, only
+      `components/card.vue` does, which is correct, since that is the one whose tag
+      really is `<Card>`.
 
-- [ ] **2.6 Lint scripts.** Root: `"lint": "eslint ."` and
-      `"lint:fix": "eslint . --fix"`. Whether one root invocation is enough depends
-      on 2.1:
+      Nuxt's scoping is also better than anything worth hand-rolling. Its globs are
+      `app/app.*`, `app/error.*`, `app/layouts/**`, `app/pages/**` and
+      `app/components/*/**` — subdirectories only, because Nuxt prefixes nested
+      components with their directory, so `components/user/card.vue` is already
+      `<UserCard>`.
+
+      House style first, framework knowledge last, is the right rule generally: all
+      five configs Nuxt contributes are framework-specific
+      (`vue/no-multiple-template-root`, `nuxt/prefer-import-meta`,
+      `nuxt/no-page-meta-runtime-values`, `nuxt/no-nuxt-config-test-key`, and the
+      disable above) and none touches house style. `withNuxt()` with no arguments
+      still installs the typegen hook.
+
+- [x] **2.6 Lint scripts.** Root `"lint": "eslint ."` and
+      `"lint:fix": "eslint . --fix"`. On ESLint 10 one root invocation is enough;
+      the table below was the deciding factor and 2.1 landed on 10.x.
 
       | ESLint major | Behaviour | What to do |
       | --- | --- | --- |
       | 10.x | Config lookup starts at each linted file and searches up. Nested configs are the default. | `eslint .` from the root is sufficient. |
       | 9.x | Lookup is cwd-based; a root run will not find `spike/eslint.config.mjs`. | Either `--flag v10_config_lookup_from_file`, or per-workspace `lint` scripts plus `npm run lint --workspaces --if-present`. |
 
-      Also confirm antfu's peer range accepts the ESLint major you ended up on.
+**Checks** — all pass, run 2026-08-27.
 
-**Checks**
-
-1. `npx eslint spike/app/app.vue --no-fix` reports rules from both sources. Prove it
-   by introducing one violation of each: a Vue-specific one such as a multi-word
-   component name for the `vue/*` layer, and a stylistic one such as double quotes
-   for antfu's layer.
-2. `npx eslint --print-config spike/app/app.vue` lists both `nuxt/*` and antfu's
-   `@stylistic/*` rules, and does not list the same plugin twice. Double-listing
-   means `standalone: false` did not take.
-3. `npm run lint` from the root covers both the root-level files and the spike, with
-   the right rules for each. Confirm by planting a violation in a root-level `.ts`
-   file and one in a `.vue` file, then running once.
-4. `npm run lint` on a clean tree exits 0 and reports no parser errors from
-   `planning/` or generated directories.
+1. Pass, with a correction to the check itself. A multi-word component name proves
+   nothing while antfu has that rule off, which is what prompted turning it back on
+   in 2.2. Three violations in one probe component report from three distinct layers:
+   `style/quotes` (antfu's `@stylistic`, renamed to `style/*`), `vue/html-quotes`
+   and `vue/prefer-template`. The two `vue/*` rules only fire inside `<template>`,
+   which no core rule can reach, so they are the better probe.
+2. Pass, but not via `--print-config`, which serialises the `plugins` object
+   array-like and loses the names. Resolving the composer directly is the real check:
+   52 configs, 20 plugin aliases, each mapping to exactly one plugin object. Order is
+   antfu 0-43, `velo/vue/rules` 44, `nuxt/*` 45-51.
+3. Pass. One `npm run lint` from the root reported `style/quotes` on a root-level
+   `.ts` file and both `vue/multi-word-component-names` and `vue/html-quotes` on a
+   spike component, in a single run.
+4. Pass, exit 0, after the three fixes in 2.2 and 2.3. `npm run lint:fix` also
+   reordered the root `package.json` keys via `antfu/sort/package-json`, which is
+   wanted.
 
 ---
 
@@ -292,7 +380,8 @@ reacting to real output instead of guessing at it.
 - A `tooling/eslint` workspace package for the shared preset. A relative import of
   `eslint.base.js` does the same job for two packages. Revisit if a third arrives.
 - Prettier for md, yaml, and css. Add it only if the lack becomes annoying, and if so
-  scope it so it can never touch ts or vue.
+  scope it so it can never touch ts or vue. antfu's `formatters` option is already
+  that escape hatch, see 2.2. The concrete gap today is `<style>` blocks in SFCs.
 - Making the Nuxt app runnable without Aspire. The full local environment is the
   point of Aspire, and the provider abstraction gives us the standalone path for free
   later if container startup ever hurts in tight agent loops.
