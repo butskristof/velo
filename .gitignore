@@ -218,5 +218,10 @@ dist/
 # Aspire (generated SDK, recreated from aspire.config.json by `aspire restore`)
 .aspire/
 
+# Playwright CLI runtime output: page snapshots written while driving a browser.
+# Note the name: `.playwright/` (no suffix) holds the committed browser config and
+# stays tracked. Only this one is generated.
+.playwright-cli/
+
 .claude/worktrees/
 .git/worktrees/

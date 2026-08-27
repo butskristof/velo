@@ -3,8 +3,20 @@
 Purpose: get the workspace, tooling, and agent context right once, before any real
 implementation starts, so technicalities stop being a decision every time.
 
-Status: phases 1 to 3 done. Work through the rest in order. Phase 5 (Aspire) can be
-its own session.
+Status: phases 1 to 4 done, apart from 4.5 (impeccable-style), which was always its
+own pass. Phase 5 (Aspire) can be its own session.
+
+Open, as of 2026-08-27:
+
+- **Phase 5**, whole. Start at 5.1 and read the scaffolder's output before moving
+  anything. The one thing to carry in from phase 4: root `CLAUDE.md` currently tells
+  agents the spike is on port 3000 because it is the only server, and points at
+  `aspire describe` as the eventual source of truth. Update it in 5.4 once the
+  resource has a name.
+- **4.5**, and phase 4 check 7 with it.
+- **Phase 4 check 4**: confirm `spike/CLAUDE.md` loads on demand. Needs a session
+  that did not write it, so it could not be self-checked. Ask for something touching
+  `spike/app/app.vue` and watch whether the file enters context.
 
 ## The shape we are building toward
 
@@ -20,20 +32,23 @@ velo/
 ├─ package-lock.json        the only npm lockfile
 ├─ skills-lock.json         skills.sh; content hash per vendored skill
 ├─ eslint.base.js           antfu preset + our overrides, imported by both configs
-├─ eslint.config.js         base + ignores for the app packages
+├─ eslint.config.js         base + ignores; the fallback config, see 2.3
 ├─ CLAUDE.md                repo map, how to run things
+├─ .agents/
+│  └─ skills/
+│     └─ playwright-cli/    vendored via skills.sh, committed; the real files
 ├─ .claude/
 │  ├─ settings.json         committed allowlist, once rules have earned it
 │  ├─ settings.local.json   gitignored, where a rule starts life
 │  └─ skills/
-│     └─ playwright-cli/    vendored via skills.sh, committed
+│     └─ playwright-cli ->  ../../.agents/skills/playwright-cli
 ├─ .playwright/
 │  └─ cli.config.json       Playwright's pinned Chromium; personal overrides
 │                           live in ~/.playwright/cli.config.json
 ├─ apphost/                 Aspire TS AppHost (phase 5)
 ├─ spike/                   throwaway Nuxt app
 │  ├─ eslint.config.mjs     withNuxt().prepend(base({ vue: true }))
-│  ├─ .claude/skills/       impeccable-style, scoped as spike:<name>
+│  ├─ .claude/skills/       impeccable-style, scoped as spike:<name> — 4.5, pending
 │  ├─ CLAUDE.md             Nuxt and Vue conventions, loads on demand
 │  └─ nuxt.config.ts        eslint.config.standalone = false
 └─ planning/
@@ -55,6 +70,7 @@ snapshots at runtime, and it is gitignored.
 | Browser tooling | `playwright-cli` plus its skill, not Playwright MCP | Playwright's own guidance for coding agents. MCP fronts ~26 tool schemas that sit in context whether or not a browser is ever opened; the skill body loads only when invoked. MCP is for long-running loops that need persistent introspection, which is not this. |
 | Playwright CLI install | Root devDependency | The skill ships *inside* the npm package, so its version is pinned to the CLI's. A global install plus a committed skill copy drift apart silently, and `npm i -g` lands under whichever Node fnm happened to have active. |
 | Playwright skill source | skills.sh from `microsoft/playwright-cli`, not `aspire agent init` and not `playwright-cli install --skills` | All three deliver byte-identical files, verified by diff, so the only difference is what tracks the version. skills.sh is the one that gives the skill a lockfile entry and an `update` command, which turns a forgotten refresh into a visible diff. |
+| Vendored skill layout | `.agents/skills/` holds the files; `.claude/skills/` symlinks in | skills.sh's own layout, and the only one that survives `skills update`. `add -a claude-code` writes real files straight into `.claude/skills/` with no `.agents/`, which is tidier, but any later `update` reverts it. Keeping the tool's layout means the bump stays one command, which is the entire reason 4.3 chose skills.sh. See 4.3. |
 | Playwright browser config | `.playwright/cli.config.json` committed; personal overrides in `~/.playwright/cli.config.json` | The CLI reads both and merges them, so the repo can carry a portable config while a machine-specific browser choice stays out of git. See 4.3 for the precedence, which is not what you would guess. |
 | Lint on agent edit | No | A `PostToolUse` hook would reformat between the small sequential edits agents make to one file, so the first lint rewrites under the next edit's feet and the diff turns to noise. Style goes in `CLAUDE.md`; `npm run lint:fix` runs once when the work is done. |
 
@@ -62,6 +78,14 @@ snapshots at runtime, and it is gitignored.
 
 - [x] `FNM_VERSION_FILE_STRATEGY=recursive` in `.zshrc`, so `.node-version` at the
       root applies in every subdirectory terminal. Verify with phase 1 check 3.
+
+- [x] `fnm default 24.20.0`, so the `default` alias matches `.node-version`.
+      Added in phase 4. The alias is the fallback for everything that cannot read
+      `.node-version` — GUI launches, non-interactive shells, `npm i -g` — and it was
+      24.16.0, which is the single shared cause of phase 3.2's WebStorm symptom and
+      the stray global `@playwright/cli` in phase 4 check 1. This does not replace
+      `.node-version`; it makes the fallback harmless when the strategy above does not
+      apply. Verify with `readlink ~/.local/share/fnm/aliases/default`.
 
 - [x] `ASPIRE_CLI_TELEMETRY_OPTOUT=true` in the `env` block of
       `~/.claude/settings.json`, and in `.zshrc` for `aspire` run from a terminal.
@@ -157,6 +181,13 @@ ships the native binary as an optional dependency and `require('esbuild')` loads
 fine. If a future dependency genuinely needs its postinstall, approve that one
 package with `npm install-scripts approve <pkg>` rather than disabling the gate.
 
+By phase 4 the same warning lists three: `esbuild@0.28.2`, `fsevents@2.3.3` and
+`unrs-resolver@1.12.2`. The list grows because npm reports every uncovered install
+script in the tree on each install, not just the new ones, and `unrs-resolver`
+arrived with `@antfu/eslint-config` in phase 2. Same reasoning, still harmless: all
+three ship their native binary as an optional platform dependency, and ESLint and
+Vite both work.
+
 ---
 
 ## Phase 2 — ESLint
@@ -240,6 +271,21 @@ Everything else hoists.
       `planning/**` is ignored because antfu lints fenced code blocks inside markdown
       and every key of a `.json` file. On planning docs and a vendored GBFS feed that
       produced 70-odd reports about illustrative snippets and escaped slashes.
+
+      Phase 4 added three more ignores, on one principle: committed, but not ours to
+      author. `.playwright/**` is generated by `playwright-cli install`, and
+      `.agents/skills/**` plus the `.claude/skills/**` symlink into it are vendored by
+      skills.sh. Linting them cannot be won, because the fix is overwritten by the
+      next install or `skills update`. That is the `jsonc/sort-keys` argument from 2.2
+      applied to a whole directory instead of a rule.
+
+      The concrete trigger was `style/eol-last` on `.playwright/cli.config.json`,
+      which the CLI writes without a trailing newline. `lint:fix` would have silenced
+      it in one character and re-broken on the next machine. The skill's markdown
+      passed on its own, which is luck rather than design: a future upstream revision
+      could introduce a violation in files the doc forbids editing, and this closes
+      that off before it happens. Both `CLAUDE.md` files are deliberately *not*
+      ignored, since those are ours, and they lint clean.
 
 - [x] **2.4 Add the Nuxt ESLint module to the spike.** `npx nuxi module add eslint`
       run inside `spike/`, then `eslint: { config: { standalone: false } }` in
@@ -431,7 +477,7 @@ fire when I do not want it, and does it beat a paragraph in `CLAUDE.md`".
 By that filter most of what is available loses to `CLAUDE.md`, which is why this
 phase installs exactly one skill.
 
-- [ ] **4.1 Root `CLAUDE.md`.** The minimum that stops an agent guessing:
+- [x] **4.1 Root `CLAUDE.md`.** The minimum that stops an agent guessing:
       where app code lives, that Aspire owns the environment, `aspire describe` for
       URLs rather than assuming a port, the lint commands, and an explicit "do not
       run `npm run dev` from the repo root". Keep it short. It loads in every
@@ -445,13 +491,38 @@ phase installs exactly one skill.
       it to what ESLint cannot express or an agent will not infer from neighbouring
       files, and remember `npm run lint:fix` is the enforcement mechanism.
 
-- [ ] **4.2 `spike/CLAUDE.md`.** Nuxt and Vue conventions only. Loads on demand when
+      **Written against today's repo, not phase 5's.** Aspire does not exist yet, so
+      telling an agent to run `aspire describe` would send it at a binary this repo
+      has no AppHost for. The file says the port is 3000 today *because* `spike` is
+      the only server, and names `aspire describe <resource> --format Json` as where
+      the URL comes from once Aspire owns the environment. Revisit in 5.4, when the
+      resource has a name worth writing down.
+
+      Two things landed here that were discovered rather than planned, both from the
+      4.3 checks: run the CLI from the repo root because config lookup is
+      cwd-sensitive, and write `state-save` output into `.playwright-cli/`
+      explicitly. Reasoning for both is in 4.3.
+
+      The Node version trap from phase 1 check 3 is also written down here, because
+      an agent hits it and cannot read `.zshrc` to find out why. See the note under
+      the checks below.
+
+- [x] **4.2 `spike/CLAUDE.md`.** Nuxt and Vue conventions only. Loads on demand when
       an agent touches files under `spike/`, so it costs nothing when working on the
       apphost. This is deliberately not a skill: a file scoped to a directory already
       triggers on exactly the right condition, with no description competing for
       attention and nothing to keep in sync with upstream.
 
-- [ ] **4.3 Playwright CLI and its skill.** Three commands at the repo root, and
+      Contents, checked against the Nuxt 4.x docs rather than written from memory,
+      since this is exactly where a stale Nuxt 3 habit does damage: `srcDir` is
+      `app/` while `server/`, `shared/` and `public/` stay at the package root; the
+      component-naming rule and the precise list of paths Nuxt exempts from it;
+      `useFetch`/`useAsyncData` in setup versus `$fetch` in handlers, and why a bare
+      `$fetch` in setup double-fetches; and the `standalone: false` plus `prepend`
+      pairing, flagged as not-a-knob because both look like plausible things to
+      change while chasing a lint error.
+
+- [x] **4.3 Playwright CLI and its skill.** Three commands at the repo root, and
       deliberately two different tools:
 
       ```bash
@@ -466,8 +537,49 @@ phase installs exactly one skill.
       `skills-lock.json` already pins the thing that matters.
 
       `playwright-cli install` writes `.playwright/cli.config.json` and nothing else.
-      `skills add` writes `.claude/skills/playwright-cli/` (`SKILL.md` plus nine
-      reference files) and a `skills-lock.json` entry carrying a content hash.
+      It downloaded no browser: `~/Library/Caches/ms-playwright/` already carried
+      several Chromium builds, so expect a first run on a clean machine to be slower
+      than the instant one seen here.
+
+      `skills add` writes `SKILL.md` plus nine reference files and a
+      `skills-lock.json` entry carrying a content hash. **Where** it writes them is
+      not what the sketch above assumed, and the difference is worth the ink because
+      it decided the committed layout:
+
+      - The default puts the real files in `.agents/skills/playwright-cli/` and makes
+        `.claude/skills/playwright-cli` a relative symlink to them. One copy, not
+        two, and git stores the link as mode `120000` holding
+        `../../.agents/skills/playwright-cli`. Portable on macOS and Linux; a Windows
+        clone needs `core.symlinks`.
+      - `add -a claude-code` instead copies the files directly into
+        `.claude/skills/playwright-cli/` and creates no `.agents/` at all, which is
+        what the tree diagram originally showed. Verified byte-identical to the
+        default layout's files, same lockfile hash, so the choice is layout only.
+      - **`skills update` does not preserve the second layout.** It rewrote
+        `.agents/` and restored the symlink, and `update -a claude-code` does not
+        help: it reads `claude-code` as another skill name and reports
+        "Universal, Claude Code". So the copy-only layout is reachable on `add` and
+        reverted by the first bump.
+
+      Hence the decisions-table row: take the tool's own layout. Keeping it means the
+      bump stays `npx skills@latest update playwright-cli`, one command, which is the
+      whole reason this went through skills.sh instead of the bundled installer. The
+      alternative traded that for a tidier root and would have needed a
+      remove-then-add ritual documented somewhere nobody reads.
+
+      Two smaller things the installer does, neither harmful, both surprising once:
+      it stages what it writes into the git index, so `git status` shows `A` rather
+      than `??` for files nothing was `git add`ed; and it prints a third-party risk
+      assessment table, where Snyk rated this skill "High Risk" while Socket reported
+      zero alerts. For a Microsoft-published skill whose entire job is driving a
+      browser, treat that as a category judgement rather than a finding, but read
+      `SKILL.md` yourself rather than taking either rating on faith.
+
+      Speaking of which: `SKILL.md` declares
+      `allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)`. The last two
+      are broad enough to cover any npm or npx command while the skill is active,
+      which is more than driving a browser needs. Since vendored files are never
+      hand-edited, a `deny` rule is the only lever if that ever matters.
 
       **Why two tools rather than `playwright-cli install --skills`, which does
       both.** The skill arrives through a dependency, so without a skill manager it
@@ -532,6 +644,24 @@ phase installs exactly one skill.
       fallback is `channel: "chrome"`, meaning the actual installed Chrome. The
       generated file is actively choosing the isolated build, so keep it.
 
+      Third, and this is the one that actually bit during the checks: the project
+      file is found at `<cwd>/.playwright/cli.config.json`, so the lookup is
+      cwd-relative and does not search upward. A shell sitting in `spike/` finds no
+      config and takes the `channel: "chrome"` fallback from the paragraph above,
+      which on this machine fails outright:
+
+      ```
+      Chromium distribution 'chrome' is not found at
+      /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      ```
+
+      That is the "worse isolation" fallback arriving through a second door, and the
+      failure is at least loud rather than silently using the wrong browser. Run the
+      CLI from the repo root, or pass `--config`. Note the asymmetry with check 1:
+      the *binary* resolves fine from `spike/` because npm hoists it, so the two
+      halves of "does this work from anywhere" have different answers. Root
+      `CLAUDE.md` carries the rule.
+
       Add `.playwright-cli/` to the root `.gitignore`. That is where page snapshots
       land at runtime, and it is a different directory from `.playwright/`.
 
@@ -554,7 +684,35 @@ phase installs exactly one skill.
       headed, but Playwright's own pinned build rather than the browser you have open
       for your own reasons.
 
-- [ ] **4.4 Permissions.** Start in `.claude/settings.local.json`, which the root
+      **That middle option is what is installed.** `~/.playwright/cli.config.json`
+      holds `headless: false` and nothing else, which is worth stating as a working
+      example of the shallow per-key merge: the launched browser reported
+      `Chrome/152.0.0.0` where the default had reported `HeadlessChrome/152.0.0.0`.
+      Same 152 build, so `channel` came from the project file and `headless` from the
+      home file in one `launchOptions` object.
+
+      A related thing that reads as a browser choice and is not. `channel: "chromium"`
+      resolves to Playwright's pinned build, whose macOS app bundle is named "Google
+      Chrome for Testing", so a headed run looks like it opened Chrome. It did not;
+      there is no Google Chrome on this machine. And **switching the binary is not how
+      you get a logged-in session.** Playwright launches a throwaway profile whatever
+      the binary, and this CLI defaults to in-memory, so cookies and extensions in a
+      personal Chromium are invisible to it. Persistence is the lever: `open
+      --persistent` / `--profile <dir>`, or `state-save` then `state-load`.
+
+      `state-save` is the one file-writing command that does not land in
+      `.playwright-cli/`. Snapshots, console logs and traces go there on their own,
+      but a bare `state-save auth.json` resolves against the working directory and
+      writes the repo root, and that file holds live cookies and tokens. Two
+      resolvers exist in `playwright-core` — one relative to `outputDir()`, one
+      relative to cwd — and this command uses the cwd one; confirmed by running it
+      and finding `./probe-auth.json`. Passing `.playwright-cli/auth.json` explicitly
+      puts it back inside the already-ignored directory, which beats carrying a
+      gitignore pattern per plausible filename at the root. Root `CLAUDE.md` carries
+      that too. There is a top-level `outputDir` config key if a future need makes
+      relocating the whole directory worthwhile.
+
+- [x] **4.4 Permissions.** Start in `.claude/settings.local.json`, which the root
       `.gitignore` already covers via `**/.claude/*.local.*`. Manual mode stays the
       default and rules get added as specific actions earn trust: `playwright-cli`,
       the lint scripts, the read-only `aspire` verbs.
@@ -566,6 +724,21 @@ phase installs exactly one skill.
 
       No lint-on-edit hook. See the decisions table for why.
 
+      **This step has no deliverable, which is the point.** It was briefly treated as
+      "write the rules we expect to need", and that is the opposite of what the
+      paragraph above says: a rule earns its place when a real action asks for it, and
+      a pre-seeded allowlist is a guess wearing the costume of a decision. It also
+      cannot rot into the repo, since `settings.local.json` is gitignored and belongs
+      to one machine. So: policy recorded, file left to grow on its own, and 4.4 is
+      done in the only sense available to it.
+
+      Two things were worth confirming rather than assuming, because the whole
+      approach rests on them. `**/.claude/*.local.*` does cover both
+      `.claude/settings.local.json` and a future package-level
+      `spike/.claude/settings.local.json`, checked with `git check-ignore -v`. And
+      the one rule that already exists, `Bash(npx ctx7@latest *)`, arrived this way
+      rather than by planning, which is the mechanism working as intended.
+
 - [ ] **4.5 impeccable-style into `spike/.claude/skills/`.** Deferred to its own
       pass, after the rest of the phase lands. Check first how it is distributed. If
       it is a plugin it installs user-level and cwd is irrelevant, in which case
@@ -573,45 +746,70 @@ phase installs exactly one skill.
       normally. If it is a skill directory, copy it in and it should surface as
       `spike:<name>`.
 
-**Checks**
+      If it does arrive through skills.sh, expect the 4.3 layout rather than the path
+      in this heading: files in `spike/.agents/skills/` and a `spike/.claude/skills/`
+      symlink. That is fine and consistent, but it means the directory-scoping trial
+      is really testing whether Claude Code resolves a package-level skill *through a
+      symlink*, which is one more moving part than the plan assumed. If the skill does
+      not surface as `spike:<name>`, test a plain copied directory before concluding
+      that directory scoping does not work.
 
-1. `npm ls @playwright/cli` at the root resolves it as a root devDependency, and
-   `npx playwright-cli --version` works from both the repo root and `spike/`. The
-   second half is the point: it must not depend on which Node version fnm has active.
-   Check it in WebStorm's terminal, not through an agent's Bash tool, for the reason
-   in phase 1 check 3 — the two shells resolve different Node versions.
+**Checks** — 1, 2, 5 and 6 pass, run 2026-08-27. 3 partly. 4 and 7 are session
+behaviour and stay open; see below.
 
-   **This check can pass for the wrong reason.** A global `@playwright/cli` satisfies
-   it just as well as the devDependency, so also confirm what is actually resolving:
+1. Pass, and the stray global is gone. `npm ls @playwright/cli` resolves
+   `@playwright/cli@0.1.18` as a root devDependency, `npx playwright-cli --version`
+   reports `0.1.18` from both the repo root and `spike/`, and
+   `require.resolve('@playwright/cli/package.json')` lands under the repo's
+   `node_modules` from both. `npm ls -g --depth 0` under 24.16.0 and 24.20.0 shows no
+   playwright, after `npm rm -g @playwright/cli` run under 24.16.0 as the check
+   predicted it would have to be.
 
-   ```bash
-   npm ls -g --depth 0 | grep playwright   # expect nothing
-   node -p "require.resolve('@playwright/cli/package.json')"
-   ```
+   The "check it in WebStorm's terminal, not an agent's Bash tool" instruction turned
+   out to be avoidable rather than wrong, and the reason is worth keeping. An agent's
+   Bash tool inherits a PATH pointing at a *mutable* fnm multishell symlink
+   (`~/.local/state/fnm_multishells/<pid>_<ts>/bin`), so `fnm use 24.20.0` repoints it
+   and holds for every later call in that session. Both halves of this check ran under
+   24.20.0 with npm 11.19.0 for that reason, which also kept the lockfile write off
+   npm 11.13.0. Two caveats: the multishell is shared with the shell that launched
+   Claude Code, so this moves that shell's node too, and it is per-session, so it is
+   not a substitute for `fnm default`.
 
-   The resolve must land under the repo's `node_modules`. There is currently a stray
-   global install under fnm's `v24.16.0` — `aspire agent init` put it there during
-   phase 4 research, because it runs `npm i -g` against whatever Node is active and
-   an agent's non-interactive shell gets the `default` alias rather than
-   `.node-version`. Remove it with `npm rm -g @playwright/cli`, run under 24.16.0 or
-   it will not find it. That is the same trap as phase 3.2, arriving through a
-   different door.
-2. `npx skills@latest ls` lists `playwright-cli` as a project skill, and
-   `skills-lock.json` holds a hash for it. `npx skills@latest update playwright-cli`
-   is a no-op immediately after install.
-3. Start a session at the repo root. The skill listing shows `playwright-cli`
-   unprefixed (it is a root-level skill) and, once 4.5 lands, the impeccable-style
-   skill with a `spike:` prefix. If the latter appears unprefixed, it installed
-   user-level and the directory-scoping trial did not happen.
-4. In that same root session, ask for something that touches `spike/app/app.vue` and
-   confirm `spike/CLAUDE.md` gets pulled into context on demand.
-5. Drive the spike with the skill from a root-cwd session: open a page, snapshot it,
-   close. Confirm it needs no `cd`, and that `.playwright-cli/` shows up in the
-   working tree and is ignored by git.
-6. `git status` after all of the above is clean apart from intended files. In
-   particular `.claude/settings.local.json` and `.playwright-cli/` are absent from it.
-7. Invoke the impeccable-style skill on a spike file and confirm it works from a
-   root-cwd session (after 4.5).
+   This check is also what prompted setting `fnm default 24.20.0`, now done and
+   recorded under "Already done". The alias had been 24.16.0, and it is the fallback
+   for every context that cannot read `.node-version`, so it was the shared cause of
+   phase 3.2's WebStorm symptom and this check's stray global.
+2. Pass, with one correction to the check's wording. `skills ls` lists
+   `playwright-cli` as a project skill at `.claude/skills/playwright-cli` sourced from
+   `microsoft/playwright-cli`, and `skills-lock.json` carries
+   `computedHash: f602822b…`. But `update` is **not** a no-op in the sense the check
+   implies: it prints "Updated 1 skill(s)" and rewrites the files, unchanged, hash
+   identical. What it also does is restore the `.agents/` + symlink layout, which is
+   how that behaviour was found at all. Judge a no-op by the hash and the diff, not by
+   what the command says it did.
+3. Partly. `playwright-cli` does appear unprefixed in a root session's skill listing,
+   confirmed live: the harness picked it up mid-session, both while it was a symlink
+   and as real files. The impeccable-style half is 4.5 and untested.
+4. Open. Cannot be self-checked honestly from the session that wrote
+   `spike/CLAUDE.md`, since the file is already in context and a hit proves nothing.
+   Needs a fresh root session asking for something that touches `spike/app/app.vue`.
+5. Pass, end to end from a root cwd with no `cd`: `open`, `goto
+   http://localhost:3000/` returning "Welcome to Nuxt!", `eval` for the user agent,
+   `close`. `.playwright-cli/` appeared holding two page snapshots and a console log,
+   and `git check-ignore -v` attributes it to the new `.gitignore` line. The spike was
+   served by `npm -w spike run dev` for this, since Aspire does not exist yet.
+
+   This is the check that produced the cwd finding in 4.3. The first attempt failed
+   with the `chrome`-not-found error because the shell's cwd had persisted into
+   `spike/` from check 1 — a Bash-tool detail, but it reproduced a real trap the
+   config split had only reasoned about.
+6. Pass. `git status` shows the ten skill files, the `.claude/skills/playwright-cli`
+   symlink, `.playwright/cli.config.json`, `skills-lock.json`, both `CLAUDE.md` files,
+   and the `.gitignore` / `package.json` / `package-lock.json` modifications. Nothing
+   else: no `.playwright-cli/`, no `.claude/settings.local.json`, no `.agents/` stray
+   from the layout experiments. Note the skill files are staged rather than untracked,
+   which the installer did, not us.
+7. Open, with 4.5.
 
 ---
 
@@ -650,6 +848,18 @@ reacting to real output instead of guessing at it.
       `--skill-locations claudecode` writes `.claude/skills/`. The alternative,
       `standard`, writes `.agents/skills/`, and taking both would put two copies of
       the same files in the tree for a repo with one agent.
+
+      **Revisit that choice before running it, because phase 4 moved the ground.**
+      `.agents/skills/` is now where vendored skills live, with `.claude/skills/`
+      symlinking in, so `claudecode` would drop real Aspire directories next to that
+      symlink and `standard` would put them in the directory that is now the
+      convention. The two-copies argument still rules out taking both. What decides it
+      is a fact not yet established: whether `aspire agent init --skill-locations
+      standard` also creates the `.claude/` symlinks that Claude Code needs to
+      discover a skill, or only writes the files. If it does not symlink, `claudecode`
+      stays correct and the tree is mixed, which is cosmetic. Check before choosing,
+      and note Aspire is not skills.sh — nothing here gives its skills a lockfile
+      entry either way.
 
       Three of the bundle's six, chosen rather than defaulted. `aspire` routes and
       carries the safety guardrails, `aspire-orchestration` owns the AppHost
