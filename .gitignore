@@ -218,7 +218,5 @@ dist/
 # Aspire (generated SDK, recreated from aspire.config.json by `aspire restore`)
 .aspire/
 
-# (expand when Nuxt app is scaffolded: .nuxt, .output, ...)
-
 .claude/worktrees/
 .git/worktrees/

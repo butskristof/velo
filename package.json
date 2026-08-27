@@ -1,0 +1,11 @@
+{
+  "name": "velo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "spike"
+  ],
+  "engines": {
+    "node": ">=24.20.0"
+  }
+}
