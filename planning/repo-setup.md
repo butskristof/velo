@@ -3,7 +3,7 @@
 Purpose: get the workspace, tooling, and agent context right once, before any real
 implementation starts, so technicalities stop being a decision every time.
 
-Status: phases 1 and 2 done. Work through the rest in order. Phase 5 (Aspire) can be
+Status: phases 1 to 3 done. Work through the rest in order. Phase 5 (Aspire) can be
 its own session.
 
 ## The shape we are building toward
@@ -270,37 +270,104 @@ Everything else hoists.
 ## Phase 3 — WebStorm
 
 All of these are IDE settings, not files, so they are yours to click through. None of
-them cascade or get committed, which is why they are worth writing down.
+them cascade or get committed: the root `.gitignore` carries `.idea/*`, so nothing
+under `.idea/` is tracked. That is the point of writing them down. This section is
+the checklist to redo on a new machine, and it is the only record that these values
+were ever chosen deliberately.
 
-- [ ] **3.1 Open the repo root** as the project. Close the `spike/` project if it is
-      open, to avoid two indexes over the same files.
+Run against WebStorm 2026.2.1 (build 262.9437.145). Two of the four steps turned out
+to be already correct, one was actively wrong, and one had moved.
 
-- [ ] **3.2 Node interpreter**: point at
+- [x] **3.1 Open the repo root** as the project. Already true, and there was nothing
+      to close: `spike/.idea` does not exist, so the spike was never opened as its
+      own project.
+
+- [x] **3.2 Node interpreter**: point at
       `~/.local/share/fnm/node-versions/v24.20.0/installation/bin/node`.
       Not the path `fnm env` prints, which lives under
       `.local/state/fnm_multishells/` and is per-shell and ephemeral. WebStorm never
       reads `.node-version`; this setting is the only thing that governs the editor,
       inspections, and run configurations.
 
-- [ ] **3.3 ESLint**: Automatic configuration. It resolves the nearest config and
+      **The settings page has moved.** It is `Languages & Frameworks | JavaScript
+      Runtime`, not `Languages & Frameworks | Node.js`. JetBrains folded the Node.js
+      page into a runtime page that also carries Bun, and their current help gives
+      the new path throughout with no mention of the old one. The field is
+      `Node runtime`.
+
+      This step fixes an observed symptom rather than being hygiene. Before it,
+      `workspace.xml` held no `nodejs_interpreter_path` at all, so WebStorm
+      autodetected node off `PATH` and landed on fnm's `default` alias, which points
+      at v24.16.0:
+
+      ```
+      ~/.local/share/fnm/aliases/default -> .../node-versions/v24.16.0/installation
+      ```
+
+      That is the version the `spike > dev` run configuration reported before this
+      change, and the same reason `javascript.nodejs.core.library.configured.version`
+      was pinned at `24.16.0`. It is also why an agent's Bash tool reports v24.16.0:
+      same PATH fallback, same alias. `.node-version` was never the thing that was
+      wrong.
+
+      Setting `Node runtime` also repointed `Package manager` from a bare
+      PATH-resolved `npm` to v24.20.0's npm 11.19.0, so the IDE and an interactive
+      shell now agree on the install-script gating behaviour recorded in phase 1.
+
+- [x] **3.3 ESLint**: Automatic configuration. It resolves the nearest config and
       the nearest `eslint` binary per file, which is exactly the nested layout we
       built. Enable "Run eslint --fix on save".
 
-- [ ] **3.4 Prettier**: confirm it is not running on save or on reformat. The
-      existing `.idea/prettier.xml` is a setting rather than a dependency, so this
-      is a checkbox, not an uninstall.
+      Both were already set before the phase started; `.idea/jsLinters/eslint.xml`
+      had `fix-on-save = true`. Worth noting that the mode is not written to that
+      file when it is Automatic, so the radio cannot be read off disk and has to be
+      eyeballed.
 
-**Checks**
+- [x] **3.4 Prettier**: **`Disable Prettier`**, not the checkboxes.
 
-1. Open a `.vue` file in the spike. Nuxt auto-imports resolve (no red squiggle on an
-   unimported `ref` or a component from `app/components/`), and the Vue plugin is
-   active.
-2. Editorconfig indentation applies in both `spike/` and a root-level file.
-3. Break style in a `.vue` file, save, and watch eslint --fix repair it. Then
-   confirm nothing reformats it a second time differently, which is the tell that
-   Prettier is still live.
-4. `git status` in the IDE shows changes across `spike/` and root-level files in one
-   changeset.
+      The plan said to confirm it was not running. It was: `.idea/prettier.xml` had
+      `myRunOnSave = true`, plus `Run on paste`. Armed rather than firing, because
+      Prettier is not installed anywhere in the tree. Nothing in `node_modules`, and
+      `require.resolve('prettier')` throws, so Automatic mode had nothing to activate
+      on. It becomes live the moment any dependency drags Prettier into the hoisted
+      `node_modules`, silently.
+
+      Disabling outright is one radio and closes it permanently. It also disposes of
+      `Prefer Prettier configuration to IDE code style`, which is the sneakier of the
+      three: it does not run Prettier, it makes the IDE's own formatter read a
+      `.prettierrc` for indent and quotes, so it could override `.editorconfig`
+      without any formatting on save. We lose the manual "Reformat with Prettier"
+      action, which we do not want.
+
+- [x] **3.5 EditorConfig support** (not in the original plan). `Editor | Code Style`,
+      `Enable EditorConfig support`. It is the prerequisite for check 2 and the plan
+      simply assumed it. `Detect and use existing file indents for editing` stays on:
+      it is why a file with rogue indentation keeps it while being edited, and
+      `eslint --fix` is the thing that corrects it on save.
+
+**Checks** — all pass, run 2026-08-27.
+
+1. Pass. `spike/app/app.vue`: an unimported `ref` resolves, and so do
+   `<NuxtRouteAnnouncer>` and `<NuxtWelcome>`. No `app/components/` to test against
+   yet, so the Nuxt-provided components are the available probe.
+2. Pass, two-space indent in both `spike/` and a root-level file.
+3. Pass. `class='foo'` in a template, saved, came back as `class="foo"` via
+   `vue/html-quotes`, and no second differing reformat followed.
+4. Pass. One changeset holding `spike/app/app.vue` and `eslint.base.js`.
+5. Pass, and this closes phase 1 check 3 in the environment that can actually run it.
+   WebStorm's built-in terminal reports `v24.20.0` at the root and still `v24.20.0`
+   after `cd spike`.
+6. Pass. The `spike > dev` npm run configuration reports Nuxt 4.5.2 on Node v24.20.0
+   and serves on `http://localhost:3000/`. Its `Node runtime` and `Package manager`
+   are both set to `Project`, so they inherit 3.2, and `Store as project file` is
+   unchecked, so the configuration lives in `workspace.xml` and stays out of git.
+   That inheritance is the thing to check first if a run configuration ever reports
+   an unexpected Node version.
+
+`spike/README.md` was rewritten as part of this. The scaffolded Nuxt starter README
+told you to `npm install` in the package and offered pnpm, yarn, and bun, all of
+which phase 1.4 deliberately undid. It now carries the two dev commands and points
+at Aspire as the intended entry point.
 
 ---
 

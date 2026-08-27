@@ -1,75 +1,26 @@
-# Nuxt Minimal Starter
+# spike
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+Throwaway Nuxt app. It exists to exercise the workspace tooling against a real
+Nuxt install: the shared ESLint preset, directory-scoped agent skills, and later
+the Aspire resource wiring. It gets deleted rather than promoted. `app/` will be
+scaffolded fresh and inherit all of it on day one.
 
-## Setup
+## Running it
 
-Make sure to install dependencies:
-
-```bash
-# npm
-npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
-```
-
-## Development Server
-
-Start the development server on `http://localhost:3000`:
+There is no install step in this directory. Dependencies are installed once from
+the repo root, which is the npm workspaces root and holds the only lockfile.
+`npm install` here is wrong, and so are pnpm, yarn, and bun.
 
 ```bash
-# npm
-npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
+npm -w spike run dev     # from the repo root
+npm run dev              # from here
 ```
 
-## Production
+Nitro serves on http://localhost:3000. The remaining scripts (`build`,
+`preview`, `generate`) are stock Nuxt and unmodified.
 
-Build the application for production:
-
-```bash
-# npm
-npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+Aspire is meant to own the local environment from phase 5 of
+`planning/repo-setup.md` onward, at which point the app is addressed through it
+(`aspire describe <resource>` for the URL, rather than assuming the port). Until
+that lands these commands are how you run it; afterwards they stay valid for
+running this package alone, which is the exception rather than the way in.
