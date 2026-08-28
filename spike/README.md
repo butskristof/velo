@@ -11,9 +11,10 @@ There is no install step in this directory. Dependencies are installed once from
 the repo root, which is the npm workspaces root and holds the only lockfile.
 `npm install` here is wrong, and so are pnpm, yarn, and bun.
 
+Run it from the repo root, not from here:
+
 ```bash
-npm -w spike run dev     # from the repo root
-npm run dev              # from here
+npm -w spike run dev
 ```
 
 Nitro serves on http://localhost:3000. The remaining scripts (`build`,
