@@ -1,6 +1,24 @@
 {
   "version": 1,
   "skills": {
+    "aspire": {
+      "source": "microsoft/aspire-skills",
+      "sourceType": "github",
+      "skillPath": "skills/aspire/SKILL.md",
+      "computedHash": "2b37052a2d993e1941a35de876c1351f201090228c469a55d6a24ee65a049feb"
+    },
+    "aspire-monitoring": {
+      "source": "microsoft/aspire-skills",
+      "sourceType": "github",
+      "skillPath": "skills/aspire-monitoring/SKILL.md",
+      "computedHash": "2b779e76dcd3236841558529becfafdd7b724608ee2388a6a7f273c2f034b089"
+    },
+    "aspire-orchestration": {
+      "source": "microsoft/aspire-skills",
+      "sourceType": "github",
+      "skillPath": "skills/aspire-orchestration/SKILL.md",
+      "computedHash": "52f1eefdabae4508d4197d30cbbd4a2bda8dc373adf79388967eb12a7615c8bf"
+    },
     "playwright-cli": {
       "source": "microsoft/playwright-cli",
       "sourceType": "github",

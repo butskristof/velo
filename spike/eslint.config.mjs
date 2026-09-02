@@ -1,6 +1,6 @@
 // @ts-check
-import base from '../eslint.base.js'
-import withNuxt from './.nuxt/eslint.config.mjs'
+import base from '../eslint.base.js';
+import withNuxt from './.nuxt/eslint.config.mjs';
 
 // `prepend`, not `withNuxt(base(...))`. The latter is `configs.clone().append(...)`,
 // which puts our config last and lets it win — including over Nuxt's
@@ -11,4 +11,4 @@ import withNuxt from './.nuxt/eslint.config.mjs'
 // The relative import crosses the package boundary, which resolves fine under plain
 // Node semantics: @antfu/eslint-config is looked up from eslint.base.js's own
 // directory, so it finds the root node_modules.
-export default withNuxt().prepend(base({ vue: true }))
+export default withNuxt().prepend(base({ vue: true }));

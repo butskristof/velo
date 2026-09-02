@@ -3,12 +3,15 @@
   "type": "module",
   "private": true,
   "workspaces": [
+    "aspire-apphost",
     "spike"
   ],
   "engines": {
     "node": ">=24.20.0"
   },
   "scripts": {
+    "aspire:start": "npm --prefix aspire-apphost run aspire:start",
+    "aspire:typecheck": "npm --prefix aspire-apphost run aspire:typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

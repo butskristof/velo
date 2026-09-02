@@ -1,8 +1,9 @@
 # velo — spike
 
 Throwaway Nuxt 4 app: it tests the repo setup and the technical feasibility of the
-Velo app before we commit to assumptions and a roadmap. It gets deleted and the real
-app is built fresh, not promoted from here.
+Velo app before we commit to assumptions and a roadmap. The real app is scaffolded
+fresh rather than promoted from here, this spike should eventually get deleted once
+the real app is stable.
 
 The root `AGENTS.md` applies in full.
 
@@ -36,5 +37,5 @@ Cache and aggregate in the BFF server routes to serve the data in the format the
 
 ## Commands
 
-Run lint and the dev server from the repo root, never from this package. See the root
-`AGENTS.md`.
+Everything runs from the repo root, never from this package: `aspire start` brings
+this package up as the resource `spike`. See the root `AGENTS.md`.

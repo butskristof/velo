@@ -1,0 +1,2 @@
+# normalize everything to LF on commit and checkout
+* text=auto eol=lf

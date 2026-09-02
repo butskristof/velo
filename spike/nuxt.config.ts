@@ -10,4 +10,4 @@ export default defineNuxtConfig({
       standalone: false,
     },
   },
-})
+});

@@ -1,5 +1,5 @@
 // @ts-check
-import antfu from '@antfu/eslint-config'
+import antfu from '@antfu/eslint-config';
 
 /**
  * Rules we want back that antfu switches off. Only appended when Vue is enabled.
@@ -16,7 +16,7 @@ const vueHouseRules = {
     // is a routing contract rather than a tag you write.
     'vue/multi-word-component-names': 'error',
   },
-}
+};
 
 /**
  * @type {import('eslint').Linter.Config}
@@ -31,7 +31,7 @@ const tsconfigRules = {
     // produces the original order again.
     'jsonc/sort-keys': 'off',
   },
-}
+};
 
 /**
  * House style for the whole workspace.
@@ -64,15 +64,16 @@ export default function base(options = {}, ...configs) {
     stylistic: {
       indent: 2,
       quotes: 'single',
+      semi: true,
     },
 
     ...options,
-  }
+  };
 
   return antfu(
     resolved,
     tsconfigRules,
     ...resolved.vue ? [vueHouseRules] : [],
     ...configs,
-  )
+  );
 }

@@ -1,5 +1,5 @@
 // @ts-check
-import base from './eslint.base.js'
+import base from './eslint.base.js';
 
 // fallback config: every file that has no nearer eslint.config.* above it
 // such as root-level scripts and planning, and the Aspire AppHost.
@@ -19,4 +19,4 @@ export default base({
     '.agents/skills/**',
     '.claude/skills/**',
   ],
-})
+});

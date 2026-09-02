@@ -3,20 +3,28 @@
 Purpose: get the workspace, tooling, and agent context right once, before any real
 implementation starts, so technicalities stop being a decision every time.
 
-Status: phases 1 to 4 done, apart from 4.5 (impeccable-style), which was always its
-own pass. Phase 5 (Aspire) can be its own session.
+Status: phases 1, 2, 3 and 5 done. Phase 4 done apart from 4.5 (impeccable-style),
+which was always its own pass.
 
-Open, as of 2026-08-27:
+Open, as of 2026-09-02:
 
-- **Phase 5**, whole. Start at 5.1 and read the scaffolder's output before moving
-  anything. The one thing to carry in from phase 4: root `CLAUDE.md` currently tells
-  agents the spike is on port 3000 because it is the only server, and points at
-  `aspire describe` as the eventual source of truth. Update it in 5.4 once the
-  resource has a name.
-- **4.5**, and phase 4 check 7 with it.
+- **4.5**, and phase 4 check 7 with it. Note `.agents/skills/impeccable/` already
+  exists in the working tree as *empty directories only* — `agents/`, `reference/`,
+  `scripts/`, zero files. Git reports a clean tree because git does not track empty
+  directories, so this is a half-finished attempt rather than committed work. Clear
+  it before starting, or the install lands on top of it.
 - **Phase 4 check 4**: confirm `spike/CLAUDE.md` loads on demand. Needs a session
   that did not write it, so it could not be self-checked. Ask for something touching
   `spike/app/app.vue` and watch whether the file enters context.
+- **Phase 5 check 6** (WebStorm TS service on the AppHost). An IDE setting, so it is
+  yours to click through; see the note under the phase 5 checks for what was done to
+  make it resolvable at all.
+
+One thing 4.5 no longer has to establish from scratch: its note wondered whether
+Claude Code resolves a skill *through a symlink*. At the repo root it does — phase
+5.6 installed three Aspire skills as `.agents/skills/<name>` plus a
+`.claude/skills/<name>` symlink, and all three appeared in a live session's skill
+listing. That leaves 4.5 testing only the *package-level* half.
 
 ## The shape we are building toward
 
@@ -45,7 +53,13 @@ velo/
 ├─ .playwright/
 │  └─ cli.config.json       Playwright's pinned Chromium; personal overrides
 │                           live in ~/.playwright/cli.config.json
-├─ apphost/                 Aspire TS AppHost (phase 5)
+├─ aspire.config.json       appHost.path, sdk version, packages, dashboard profiles
+├─ aspire-apphost/          Aspire TS AppHost, the scaffolder's own directory name
+│  ├─ apphost.mts           the app model; `spike` -> ../spike
+│  ├─ eslint.config.mjs     base({ typescript: { tsconfigPath } }) + one rule, see 5.3
+│  ├─ tsconfig.apphost.json the real settings; Aspire and tsx reference this name
+│  ├─ tsconfig.json         extends the above, for tooling that only looks for this
+│  └─ .aspire/modules/      generated SDK, gitignored, never hand-edited
 ├─ spike/                   throwaway Nuxt app
 │  ├─ eslint.config.mjs     withNuxt().prepend(base({ vue: true }))
 │  ├─ .claude/skills/       impeccable-style, scoped as spike:<name> — 4.5, pending
@@ -64,7 +78,10 @@ snapshots at runtime, and it is gitignored.
 | WebStorm project root | Repo root | IDE features resolve per-package, not per-project-root. Opening the root keeps VCS coherent and makes agent changes visible in the diff view. |
 | Config placement | Per-package where forced, root otherwise | Makes the WebStorm choice reversible. Nothing depends on which folder is the project root. |
 | Package manager | npm workspaces | One install, one lockfile, unambiguous resolution for the shared ESLint preset. |
-| AppHost location | `apphost/`, not the root | Its tsconfig needs to be node-flavoured and point at the generated `.aspire/` SDK. At the root it would implicitly claim the whole tree and fight the Nuxt TS service. |
+| AppHost location | `aspire-apphost/`, not the root | Its tsconfig needs to be node-flavoured and point at the generated `.aspire/` SDK. At the root it would implicitly claim the whole tree and fight the Nuxt TS service. The name is the scaffolder's, not ours: `aspire init` never offered the root, and any subdirectory satisfies the actual requirement. Renaming was available and declined — see 5.2. |
+| Nuxt resource type | `addViteApp` | Aspire's own documented resource for Nuxt, and it registers the http endpoint with `PORT` for free, which Nuxt honours. The plan's "not the Vite one, Nuxt manages its own HMR" was reasoning about something Aspire does not do: `ViteAppResource` adds exactly one member over `JavaScriptAppResource`, `withViteConfig`. See 5.4. |
+| Aspire MCP server | No | Same argument as Playwright MCP one row down: 15 tool schemas in context whether or not an AppHost is running. `aspire describe` / `logs` / `ps` over Bash is what the phase 5 checks use and it is enough. Aspire's own docs agree that skills come first. |
+| Aspire skills source | skills.sh from `microsoft/aspire-skills`, not `aspire agent init` | Consistent with 4.3. The installer gives no lockfile entry, and it additionally wants to write a `.mcp.json` and re-add the user-level telemetry hook. Going through skills.sh avoids both and makes a forgotten refresh a visible diff. |
 | ESLint formatting | antfu `@stylistic` rules, no Prettier | Two formatters on save is the classic tarpit. |
 | impeccable-style skill | `spike/.claude/skills/` | Trials the directory-scoped mechanism. The spike is throwaway, so re-installing into `app/` later is expected, not a cost. |
 | Browser tooling | `playwright-cli` plus its skill, not Playwright MCP | Playwright's own guidance for coding agents. MCP fronts ~26 tool schemas that sit in context whether or not a browser is ever opened; the skill body loads only when invoked. MCP is for long-running loops that need persistent introspection, which is not this. |
@@ -815,76 +832,261 @@ behaviour and stay open; see below.
 
 ## Phase 5 — Aspire AppHost
 
-Deferred deliberately. Run the scaffolder before deciding anything, so we are
-reacting to real output instead of guessing at it.
+Done 2026-09-02, against Aspire CLI 13.5.3. Deferred deliberately so the scaffolder
+ran before anything was decided, which was the right call: three of the six steps
+below were written against assumptions the real output contradicted.
 
-- [ ] **5.1 `aspire init --language typescript`** at the repo root. Read what it
-      produced before moving anything.
+- [x] **5.1 `aspire init --language typescript --suppress-agent-init`** at the repo
+      root. The extra flag is not decoration: without it `init` chains straight into
+      agent setup with `aspireify` pre-selected, which mixes scaffolding with the skill
+      and MCP decisions that 5.6 owns. `--non-interactive` on top, since the language
+      is already given.
 
-- [ ] **5.2 Move it into `apphost/`** if it landed at the root, then add `"apphost"`
-      to the root workspaces array and re-run `npm install`.
+      **It does not land at the root**, so the "move it if it did" half of 5.2 never
+      applies. With a root `package.json` present, `init` creates a nested package and
+      leaves pointers at the root:
 
-- [ ] **5.3 `apphost/tsconfig.json`**, node-flavoured, referencing the generated
-      `.aspire/` SDK types. Tight `include` so it cannot reach into the app packages.
+      | Path | What |
+      | --- | --- |
+      | `aspire-apphost/` | `apphost.mts`, `package.json`, `tsconfig.apphost.json`, `eslint.config.mjs`, `.gitignore`, `.aspire/modules/` |
+      | `aspire.config.json` | root. `appHost.path`, `sdk.version`, `packages`, dashboard `profiles` |
+      | `package.json` | root, gains `aspire:start` / `aspire:build` / `aspire:dev` delegates |
 
-- [ ] **5.4 Add the Nuxt resource** using the generic JavaScript app resource, not
-      the Vite one. Nuxt runs its own dev server through Nitro and manages HMR
-      itself. Give the resource a stable name; agents will address it by that name.
+      Three things worth knowing about that output:
 
-- [ ] **5.5 Verify the npm install interaction.** Aspire's JS app resource typically
-      runs an install in the resource's working directory. Modern npm handles being
-      invoked inside a workspace by doing a workspace-aware install, so this should
-      be fine, but confirm it rather than discovering it later.
+      `Aspire.Hosting.JavaScript` is already in `aspire.config.json`'s `packages`, so
+      there is no `aspire add javascript` step. The generated SDK is 3.5 MB of
+      `.aspire/modules/aspire.mts`, already covered by the root `.gitignore`'s
+      `.aspire/` (which matches at any depth, so it catches both this and the
+      root-level `.aspire/integrations/` the CLI creates at run time).
 
-- [ ] **5.6 Aspire skills, and only Aspire skills.** Phase 4.3 already owns the
-      browser tooling, so this step no longer installs `playwright-cli`:
+      The delegate scripts did **not** clobber the root `lint` / `lint:fix`. Docs say
+      only `aspire:`-prefixed scripts are written and existing ones are preserved with
+      a warning; confirmed from the diff rather than trusted.
+
+      It also ran its own `npm install` inside the new package, leaving
+      `aspire-apphost/node_modules` and a second `aspire-apphost/package-lock.json`.
+      That is phase 1.4 again and 5.2 undoes it.
+
+- [x] **5.2 Adopt into the workspace.** Kept the scaffolder's directory name. Renaming
+      to `apphost/` was available — `aspire init` is a one-shot that never re-runs, so
+      unlike skills.sh in 4.3 nothing would revert it — and it needs `appHost.path`
+      plus the three delegate scripts repointed. Declined anyway: the reason the plan
+      wanted a subdirectory was tsconfig scoping, and any subdirectory satisfies that,
+      so the rename buys a shorter name and nothing else.
+
+      Same order as 1.4, and it matters:
+
+      1. `rm -rf aspire-apphost/node_modules aspire-apphost/package-lock.json`
+      2. `"aspire-apphost"` into the root `workspaces` array
+      3. `npm install` from the root
+
+      Result: one lockfile, and `npm ls --workspaces --depth 0` lists the package.
+      Everything hoists after the dependency pass below.
+
+      **Dependency hygiene, which is 2.4 repeated.** The scaffolded `package.json`
+      declared six devDependencies. Four were wrong for this repo:
+
+      | Dropped | Why |
+      | --- | --- |
+      | `eslint` | Root devDependency already, hoisted, and it satisfies the peer range. One declaration per tool. |
+      | `typescript-eslint` | Only the scaffolded ESLint config imported it directly. 5.3 removes that import. |
+      | `typescript@^5.9.3` | A second TypeScript, and against 2.1's deliberate `^6.0.3`. It was the *only* package npm had to nest. Verified removable rather than assumed: `tsc -p tsconfig.apphost.json` compiles the generated SDK clean under 6.0.3. That also answers 2.1's parked question for this package. |
+      | `nodemon` | Referenced by nothing — not a script, not a config. |
+
+      `@types/node` bumped `^22` → `^24` to match `.node-version`. `tsx` **stays, and
+      is load-bearing**: the CLI runs the AppHost with
+      `npm exec tsx --tsconfig tsconfig.apphost.json apphost.mts`, visible in the
+      process tree. `vscode-jsonrpc` stays; it is the transport the generated SDK uses.
+
+      Scripts were pruned to the three `aspire:*` the root delegates target.
+      The scaffold also shipped `lint` (running `eslint apphost.mts` from inside the
+      package, which the root `CLAUDE.md` explicitly forbids) plus `predev` / `prebuild`
+      hooks firing it automatically, and `dev` / `build` / `watch` aliases that invite
+      running from the package. All removed. Change one thing at a time here: the
+      pruning was done *after* a first green `aspire start`, so a breakage would have
+      had one candidate cause.
+
+- [x] **5.3 tsconfig, and the ESLint config the plan did not know about.** The
+      scaffolder writes `tsconfig.apphost.json` itself, node-flavoured, `include`
+      already narrowed to `apphost.mts` plus the three SDK files. So there was nothing
+      to author — only to leave alone. That name is referenced by `aspire:build`,
+      `aspire:dev` and the CLI's own `tsx` invocation, so it cannot be renamed.
+
+      **Added `aspire-apphost/tsconfig.json`, extending it and holding nothing else.**
+      Both consumers that matter resolve a conventional `tsconfig.json` and are blind
+      to the `.apphost.` name:
+
+      - typescript-eslint's project service walks up from each file looking for
+        `tsconfig.json`. Without this, `apphost.mts` belongs to no project and every
+        type-aware rule is a parsing error, not a passing lint.
+      - WebStorm's TypeScript service resolves `tsconfig.json` too, which is check 6.
+
+      **The scaffolded `eslint.config.mjs` was the one actively dangerous thing in the
+      output.** It is a standalone config — typescript-eslint's `base` preset plus one
+      rule — and under ESLint 10's nearest-config-wins lookup it shadows the root
+      config completely. The root `eslint.config.js` comment says it covers "the Aspire
+      AppHost"; that would have quietly stopped being true, with no error to notice.
+
+      Rewritten to compose from `eslint.base.js`, same shape as `spike/`. Two details:
+
+      `base({ typescript: { tsconfigPath } })` is how antfu's type-aware layer turns on
+      (`isTypeAware = !!tsconfigPath`). The path must be **absolute** —
+      `path.join(import.meta.dirname, 'tsconfig.json')`. antfu passes it straight to
+      typescript-eslint as `projectService.defaultProject` and exposes no
+      `tsconfigRootDir`, so a relative path resolves against the process cwd, and we
+      always lint from the repo root.
+
+      `antfu/no-top-level-await` is switched off for `apphost.mts`. Not a style
+      preference: `createBuilder`, every `add*`/`with*`, and `build().run()` are async,
+      and Aspire's own scaffold and every documented example are top-level await.
+
+      `ts/no-floating-promises` is kept, which is the rule the scaffolded config existed
+      for and it earns its place — a dropped `await` omits the resource from the app
+      model without failing, so the AppHost starts and is quietly missing something.
+      Verified firing rather than assumed present: dropping the `await` in front of
+      `builder.addViteApp(...)` reports, and the rule is type-aware, so this also proves
+      the `tsconfigPath` wiring above actually resolved.
+
+- [x] **5.4 The Nuxt resource.** One resource per package, named after its directory:
+      `spike`.
+
+      **Amended 2026-09-02; it was `web` first.** The original reasoning was that the
+      resource name is a stable address — `aspire describe`, root `CLAUDE.md` and
+      agents all use it — so it should survive `spike/` being replaced by `app/`. That
+      rests on the replacement being a swap. It is not: the spike and the real app are
+      expected to run side by side for a while, which leaves `web` standing for
+      whichever of two live resources is "the app". A name tied to its package cannot
+      drift that way, and a second app package is a second `addViteApp` call under its
+      own name.
+
+      Steps and checks below still quote `web`. Those are transcripts of runs made
+      before the rename and are left as they were observed; only the name changed,
+      not the command shape or anything either one proved.
+
+      **`addViteApp`, against what this step originally said.** The plan's reasoning was
+      that Nuxt runs its own dev server through Nitro and manages HMR itself, so the
+      Vite resource would interfere. It does not do anything that could: in the
+      generated SDK `ViteAppResource` adds exactly one member over
+      `JavaScriptAppResource`, `withViteConfig(configPath)`, which we never call. The
+      only functional difference is that `addViteApp` registers the http endpoint with
+      the `PORT` environment variable for you, and Aspire's own docs use it for Nuxt.
+
+      Nuxt honours `PORT`, verified before committing to it: `PORT=4321 npm -w spike run
+      dev` serves on 4321. In practice Aspire belts and braces this — it passes both
+      `PORT` in the environment *and* `npm run dev -- --port <n>`.
+
+      Do not add `.withHttpEndpoint()` on top; the docs are explicit that a second
+      endpoint is a duplicate-endpoint error at runtime.
+
+- [x] **5.5 The npm install interaction, closed by construction rather than by
+      verification.** JavaScript resources auto-install in the resource's own working
+      directory by default, which would run npm inside `spike/`. The plan intended to
+      confirm that modern npm handles that gracefully. Better: don't let it happen.
+      `withNpm({ install: false })` — per the SDK's own doc comment, "only sets the
+      package manager annotation without creating an installer resource".
+
+      Confirmed after a run: still one lockfile, no `spike/package-lock.json`, and
+      `aspire logs web` shows the resource starting with `npm run dev`, no install step.
+
+      **The prose docs and the API reference disagree on the shape of these calls** —
+      the reference gives positional `withNpm(install?, installCommand?, installArgs?)`,
+      the prose gives an options object. The generated SDK is the authority and it is
+      the object: `withNpm(options?: WithNpmOptions)`,
+      `addViteApp(name, appDirectory, options?)`. Read `.aspire/modules/aspire.mts`
+      before trusting either doc.
+
+- [x] **5.6 Aspire skills via skills.sh, no MCP, no `aspire agent init`.** The command
+      this step used to recommend is gone. Reasons, in order of weight:
+
+      `aspire agent init` gives its skills no lockfile entry, which is the whole
+      argument 4.3 made for routing `playwright-cli` through skills.sh. It also wants to
+      write a `.mcp.json` and to re-add the user-level telemetry hook. skills.sh avoids
+      all three.
 
       ```bash
-      aspire agent init --workspace-root . \
-        --skill-locations claudecode \
-        --skills aspire,aspire-orchestration,aspire-monitoring
+      npx skills@latest add https://github.com/microsoft/aspire-skills \
+        --skill aspire --skill aspire-orchestration --skill aspire-monitoring -y
       ```
 
-      `--skill-locations claudecode` writes `.claude/skills/`. The alternative,
-      `standard`, writes `.agents/skills/`, and taking both would put two copies of
-      the same files in the tree for a repo with one agent.
+      Note the **repeated `--skill` flag**. Comma-separated values are silently rejected
+      with "No matching skills found for: aspire,aspire-orchestration,aspire-monitoring".
+      `--list` enumerates a repo without installing, which is how the six-skill bundle
+      was confirmed reachable this way at all.
 
-      **Revisit that choice before running it, because phase 4 moved the ground.**
-      `.agents/skills/` is now where vendored skills live, with `.claude/skills/`
-      symlinking in, so `claudecode` would drop real Aspire directories next to that
-      symlink and `standard` would put them in the directory that is now the
-      convention. The two-copies argument still rules out taking both. What decides it
-      is a fact not yet established: whether `aspire agent init --skill-locations
-      standard` also creates the `.claude/` symlinks that Claude Code needs to
-      discover a skill, or only writes the files. If it does not symlink, `claudecode`
-      stays correct and the tree is mixed, which is cosmetic. Check before choosing,
-      and note Aspire is not skills.sh — nothing here gives its skills a lockfile
-      entry either way.
+      Layout is 4.3's: real files in `.agents/skills/<name>`, `.claude/skills/<name>`
+      symlinks, four entries in `skills-lock.json`. All three surfaced in a live
+      session's skill listing immediately.
 
-      Three of the bundle's six, chosen rather than defaulted. `aspire` routes and
-      carries the safety guardrails, `aspire-orchestration` owns the AppHost
-      lifecycle, `aspire-monitoring` reads logs, traces and metrics — that is the
-      daily loop. `aspire-deployment` is nine reference files of AWS, Azure,
-      Kubernetes and CI for a local spike that deploys nowhere. `aspireify` wires an
-      existing codebase into an AppHost, which is 5.4's job and better done by hand
-      the first time. `aspire-init` is a one-shot that 5.1 already covers
-      interactively.
+      Three of the six, chosen rather than defaulted. `aspire` routes and carries the
+      safety guardrails, `aspire-orchestration` owns the AppHost lifecycle,
+      `aspire-monitoring` reads logs, traces and metrics — that is the daily loop.
+      `aspire-deployment` is AWS, Azure, Kubernetes and CI for a spike that deploys
+      nowhere. `aspireify` wires an existing codebase into an AppHost, which was 5.4's
+      job and better done by hand the first time. `aspire-init` is a one-shot 5.1
+      covered. (The repo also exposes an unrelated `pr-review` skill.)
 
-      Expect this to re-add the telemetry hook to `~/.claude/settings.json`. That is
-      why the opt-out lives in the `env` block rather than being deleted; see "Already
-      done".
+      **The question this step left open is answered, and `claudecode` would have been
+      the right choice.** `--skill-locations standard` writes files only; it does not
+      create the `.claude/` symlinks Claude Code needs. Evidence was already on this
+      machine: a user-level Aspire install on 17 Aug left `aspire`,
+      `aspire-monitoring` and `aspire-orchestration` in `~/.agents/skills/` with no
+      corresponding `~/.claude/skills/` symlinks, which is exactly why no Aspire skill
+      appeared in sessions before today. Worth knowing that `standard` also writes
+      user-level `~/.agents/skills/`, not just the workspace.
 
-**Checks**
+- [x] **5.7 Root `CLAUDE.md`** (`AGENTS.md`; `CLAUDE.md` is a symlink to it). This is
+      the item phase 4.1 deferred here. `aspire start` is now the documented entry
+      point, `npm -w spike run dev` demoted to an isolated check, the port-3000 claim
+      gone, and the `web` resource name plus the `describe` → URL → Playwright handoff
+      written down. Also the AppHost editing rules from 5.3 to 5.5, since each one is a
+      trap an agent would otherwise walk into.
 
-1. `aspire ls` from the root finds the AppHost.
-2. `aspire start`, then `aspire ps --format Json` shows it running.
-3. `aspire describe <nuxt-resource> --format Json` returns a usable URL, and the app
-   answers on it. This is the contract the Playwright skill depends on.
-4. `aspire logs <nuxt-resource> -n 20` returns Nitro output.
-5. `npm run lint` from the root now also covers `apphost/`, with the root config's
-   rules and no Vue rules leaking in.
-6. Open an apphost `.ts` file in WebStorm and confirm the TS service uses
-   `apphost/tsconfig.json`, not the spike's.
+      Fixed a pre-existing lint error while in the file: the `planning/` row of the
+      layout table ended `| Docs. ||`, which `markdown/table-column-count` reports
+      twice, once per name the symlink is reached by.
+
+**Checks** — 1 to 5 pass, run 2026-09-02. 6 is an IDE setting and stays open.
+
+1. Pass. `aspire ls` searched 11 directories and found the one AppHost at
+   `aspire-apphost/apphost.mts`, `typescript/nodejs`, status `buildable`.
+2. Pass. `aspire start` detaches and returns cleanly; `aspire ps --format Json` reports
+   `"status": "running"` with the AppHost pid and dashboard URL.
+3. Pass, and this is the contract worth stating precisely. `aspire describe web
+   --format Json` returns `state: "Running"`, `healthStatus: "Healthy"`, and a URL that
+   answers 200 with "Welcome to Nuxt!".
+
+   Two details that will otherwise cost someone an hour. The resource's real name is
+   suffixed — `web-xprtfnwg` — with `displayName: "web"`; `describe web` resolves it, so
+   address it by the short name. And **`describe` reports two ports**: `urls[]` holds
+   Aspire's proxy (the one to use) while `environment.PORT` is the app's own listener
+   behind it. They differed by one (53717 vs 53718), which is close enough to look like
+   a typo and is not.
+
+   The URL is genuinely dynamic: 53717 on one run, 59240 after a restart. Nothing may
+   cache it.
+4. Pass. `aspire logs web -n 20` returns Nitro output — the Nuxt 4.5.2 banner, Vite
+   client and server builds, and the `npm run dev -- --port <n>` invocation.
+
+   Incidental finding: the logged npm path is
+   `~/.local/state/fnm_multishells/<pid>_<ts>/bin/npm`, so Aspire spawns npm from the
+   PATH of whatever shell launched it. Same fnm trap as phase 1 check 3 and phase 4
+   check 1, one door further along — launch `aspire` from a shell on the wrong Node and
+   the app runs on that Node.
+5. Pass. `npm run lint` from the root exits 0 and does reach `aspire-apphost/`,
+   confirmed by watching it report there before the fixes in 5.3. Type-aware rules
+   resolve, `ts/no-floating-promises` fires on a probe, and no Vue rules leak in —
+   2.2's `vue: false` default doing its job now that there is a second non-Vue package
+   to prove it on.
+6. Open. Yours to click through: open `aspire-apphost/apphost.mts` in WebStorm and
+   confirm the TS service uses `aspire-apphost/tsconfig.json` and not the spike's. 5.3
+   added that file partly so this can succeed at all — WebStorm does not recognise
+   `tsconfig.apphost.json`.
+
+**Not part of phase 5, but noticed while running it.** `aspire doctor` reports Docker
+installed but not running. Irrelevant to a Nuxt-only AppHost and it did not block
+anything here, but Valhalla and Photon are containers, so it becomes a prerequisite the
+first time one of those enters the app model.
 
 ---
 
@@ -903,6 +1105,16 @@ reacting to real output instead of guessing at it.
 
 - Playwright MCP. See the decisions table. The short version is that its tool schemas
   are in context whether or not a browser is ever opened, and the skill's are not.
+
+- The Aspire MCP server, which `aspire agent init` offers to wire into `.mcp.json` as
+  `aspire agent mcp` over stdio. Same argument as Playwright MCP: 15 tool schemas
+  (`list_resources`, `list_console_logs`, `list_traces`, `execute_resource_command`,
+  the docs verbs, …) sit in context whether or not an AppHost is running. Everything
+  phase 5's checks need is `aspire describe` / `logs` / `ps` over Bash, and Aspire's own
+  docs put skills first and reach for the MCP server only when an agent needs live
+  runtime data. Revisit if reading telemetry through the CLI starts to hurt — most
+  likely once Valhalla and Photon are containers in the graph and there is genuinely
+  more to read. Nothing was installed, so there is no `.mcp.json` to remove.
 
 - The `playwright-component-testing` skill. Its happy path branches on *"app runs on
   Vite (has `vite.config.*`)"* to serve a story gallery from the existing dev server

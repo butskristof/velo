@@ -10,27 +10,29 @@ Product context and constraints: `planning/velo-app-handoff.md`.
 Tooling decisions and their reasoning: `planning/repo-setup.md`.
 Read the relevant one before proposing a change to either.
 
-Pre-implementation. `spike/` is the only app package.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `eslint.base.js` | House style, single source. Every package config imports it. |
-| `spike/` | Throwaway Nuxt 4 app. Gets deleted, not promoted. |
-| `planning/` | Docs. ||
-
-`apphost/` arrives with the Aspire AppHost in phase 5 of `planning/repo-setup.md`.
+| `eslint.base.js` | House style, single source. Every package config imports it |
+| `aspire.config.json` | Points Aspire at the AppHost |
+| `aspire-apphost/` | Aspire TypeScript AppHost |
+| `spike/` | Nuxt 4 app for testing & validating feasibility |
+| `planning/` | Docs |
 
 ## Commands
 
-Run everything from the repo root: npm workspaces and, later, the Aspire AppHost are
-defined there.
+Run everything from the repo root: npm workspaces and the Aspire AppHost are defined
+there.
 
 ```bash
-npm -w spike run dev     # Nitro on http://localhost:3000
+aspire start             # bring up AppHost, resources and dependencies in the background
+aspire stop              # stops running AppHost, resources and dependencies
+aspire run               # foreground equivalent of start; blocks, so not for agents
 npm run lint             # covers every package
-npm run lint:fix         # run once, at the end
+npm run lint:fix
+npm run aspire:typecheck
 ```
 
 Never `npm install` inside a package. One install at the root, one lockfile. Add a
@@ -47,18 +49,43 @@ Photon). Prefer self-hosted over commercial dependencies such as Google Maps.
 
 ## Aspire
 
-Not set up yet; phase 5. Aspire will own the local development environment: starting
-the AppHost (TypeScript) brings up dependencies and the app with its configuration
-injected (connection strings, environment variables). Aspire does not manage
-deployment.
+Aspire owns local development (not deployment): the AppHost brings up dependencies and
+the app with its configuration injected.
 
-It assigns ports dynamically, so once it lands, get URLs from
-`aspire describe <resource> --format Json` rather than assuming one.
+One resource per package, named after its directory: `spike/` comes up as `spike`.
+A new app package is added as its own resource under its own name rather than by
+renaming an existing one — the two are expected to run side by side.
+
+Ports are dynamic and change on every restart. Never assume one, never reuse one from
+earlier in the session. Ask for it, including before pointing `playwright-cli` at the
+app, and check which resource you are asking about when more than one is up:
+
+```bash
+aspire describe spike --format Json     # .resources[0].urls[] holds the URL
+aspire logs spike -n 20
+```
+
+Use `urls[]`, Aspire's proxy. The resource's `environment.PORT` is the app's own
+listener behind it.
+
+Editing `apphost.mts`:
+
+- Read the comments in the file first. Every resource choice is justified there;
+  do not undo one without reading why it is that way.
+- Never hand-edit `.aspire/`. It is a generated, gitignored SDK; `aspire restore`
+  regenerates it from `aspire.config.json`.
 
 ## Workflow
 
 Build features end-to-end. Cover behaviour with automated tests where that is
 feasible and useful. Verify UI in a real browser with the Playwright CLI.
+
+Before you stop, for what you touched:
+
+- `npm run lint:fix`, once, after the last edit is in. Linting between edits rewrites
+  the file under you and invalidates the next edit.
+- `npm run aspire:typecheck` if `apphost.mts` changed. Aspire strips its types
+  without checking them, so an error there runs silently and lint will not see it.
 
 Commits and PRs belong to the user. Do not commit, do not open PRs, do not offer to.
 
@@ -67,13 +94,10 @@ Commits and PRs belong to the user. Do not commit, do not open PRs, do not offer
 ESLint owns linting and formatting, based on antfu's config. No Prettier: formatting
 is the `@stylistic` rules. Do not add a formatter.
 
-- Run it from the repo root, never from a package.
 - A new package starts its ESLint config from `eslint.base.js`. Vue packages opt in
   with `base({ vue: true })`.
 - Lint only code we own. Committed files that are not ours to author (vendored
   skills, generated tool config) are ignored on purpose. Leave them ignored.
-- Finish every edit to a file first, lint at the end. Linting between edits rewrites
-  the file under you and invalidates the next edit.
 - Do not reformat a file you were not asked to touch.
 
 ## Playwright
