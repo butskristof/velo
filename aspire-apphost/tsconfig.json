@@ -1,0 +1,5 @@
+{
+  // Aspire scaffolds tsconfig.apphost, this makes it visible to IDEs etc
+  // Keep it a pure re-export: settings belong in tsconfig.apphost.json
+  "extends": "./tsconfig.apphost.json"
+}
